@@ -1,0 +1,13 @@
+# Instagram Crawler Dependencies
+
+# GUI
+customtkinter>=5.2.0
+
+# Instagram crawling
+instaloader>=4.10.0
+
+# Database (built-in sqlite3, no additional deps needed)
+
+# Additional utilities
+requests>=2.31.0
+Pillow>=10.0.0
