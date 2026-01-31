@@ -85,15 +85,14 @@ class ReelsCrawler:
 
                 total_checked += 1
 
-                # Check if it's a reel
+                # Check if it's a reel (product_type is in _node)
                 is_reel = False
                 if post.is_video:
-                    try:
-                        if hasattr(post, 'product_type') and post.product_type == 'clips':
-                            is_reel = True
-                    except Exception:
-                        # Some posts might not have product_type
-                        pass
+                    product_type = None
+                    if hasattr(post, '_node'):
+                        product_type = post._node.get('product_type')
+                    if product_type == 'clips':
+                        is_reel = True
 
                 if is_reel:
                     try:

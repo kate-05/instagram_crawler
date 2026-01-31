@@ -44,8 +44,11 @@ class PostsCrawler:
         if post.typename == 'GraphSidecar':
             return 'carousel'
         elif post.is_video:
-            # Check if it's a reel
-            if hasattr(post, 'product_type') and post.product_type == 'clips':
+            # Check if it's a reel (product_type is in _node)
+            product_type = None
+            if hasattr(post, '_node'):
+                product_type = post._node.get('product_type')
+            if product_type == 'clips':
                 return 'reel'
             return 'video'
         else:
