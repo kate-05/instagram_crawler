@@ -6,7 +6,7 @@ from datetime import datetime
 
 import instaloader
 
-from config import POST_REQUEST_DELAY
+from config import POST_REQUEST_DELAY, RATE_LIMIT_WAIT, MAX_RETRIES
 
 
 class PostsCrawler:
@@ -96,9 +96,12 @@ class PostsCrawler:
 
         posts = []
         count = 0
+        retry_count = 0
 
         try:
-            for post in profile.get_posts():
+            post_iterator = profile.get_posts()
+
+            while True:
                 # Check stop flag
                 if stop_flag and stop_flag():
                     self.progress_callback("게시물 수집 중단됨")
@@ -109,18 +112,37 @@ class PostsCrawler:
                     break
 
                 try:
-                    post_data = self._post_to_dict(post)
-                    posts.append(post_data)
-                    count += 1
+                    post = next(post_iterator)
+                    retry_count = 0  # Reset retry count on success
 
-                    if count % 10 == 0:
-                        self.progress_callback(f"게시물 {count}개 수집됨...")
+                    try:
+                        post_data = self._post_to_dict(post)
+                        posts.append(post_data)
+                        count += 1
 
-                    time.sleep(POST_REQUEST_DELAY)
+                        if count % 10 == 0:
+                            self.progress_callback(f"게시물 {count}개 수집됨...")
 
-                except Exception as e:
-                    self.progress_callback(f"게시물 처리 오류 ({post.shortcode}): {str(e)}")
-                    continue
+                        time.sleep(POST_REQUEST_DELAY)
+
+                    except Exception as e:
+                        self.progress_callback(f"게시물 처리 오류 ({post.shortcode}): {str(e)}")
+                        continue
+
+                except StopIteration:
+                    break
+                except instaloader.exceptions.ConnectionException as e:
+                    error_msg = str(e)
+                    if "401" in error_msg or "wait" in error_msg.lower():
+                        retry_count += 1
+                        if retry_count <= MAX_RETRIES:
+                            self.progress_callback(f"Rate limit 감지. {RATE_LIMIT_WAIT}초 대기 후 재시도 ({retry_count}/{MAX_RETRIES})...")
+                            time.sleep(RATE_LIMIT_WAIT)
+                            continue
+                        else:
+                            self.progress_callback(f"최대 재시도 횟수 초과. 수집된 {len(posts)}개 반환")
+                            break
+                    raise
 
             self.progress_callback(f"총 {len(posts)}개 게시물 수집 완료")
             return posts

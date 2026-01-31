@@ -806,33 +806,29 @@ class InstagramCrawlerApp(ctk.CTk):
 
     def _process_reels(self, profile: Dict[str, Any],
                        insta_profile: instaloader.Profile) -> bool:
-        """Process reels step."""
-        if not insta_profile:
-            return False
+        """Process reels step.
 
+        Note: Reels are already collected by posts crawler with post_type='reel'.
+        This step just reports the count - no separate API call needed.
+        """
         profile_id = profile['id']
-        self.message_queue.put(('log', "릴스 수집 중..."))
+        self.message_queue.put(('log', "릴스 확인 중..."))
 
-        # Get reels (filter from already collected posts if possible)
-        existing_posts = self.db.get_profile_posts(profile_id, post_type='reel')
-        if existing_posts:
-            self.message_queue.put(('log', f"이미 {len(existing_posts)}개 릴스가 수집되어 있습니다"))
-            return True
+        # Reels are already captured by posts crawler with post_type='reel'
+        existing_reels = self.db.get_profile_posts(profile_id, post_type='reel')
+        reel_count = len(existing_reels) if existing_reels else 0
 
-        reels = self.reels_crawler.get_reels(
-            insta_profile,
-            stop_flag=lambda: self.should_stop
-        )
+        if reel_count > 0:
+            self.message_queue.put(('log', f"릴스 {reel_count}개 (게시물에서 수집됨)"))
+        else:
+            # Check if there are any posts at all
+            all_posts = self.db.get_profile_posts(profile_id)
+            if all_posts:
+                self.message_queue.put(('log', "릴스 없음 (이 계정에 릴스가 없습니다)"))
+            else:
+                self.message_queue.put(('log', "릴스 확인 불가 (게시물 먼저 수집 필요)"))
 
-        if reels:
-            for reel_data in reels:
-                reel_data['profile_id'] = profile_id
-
-            added = self.db.add_posts_batch(reels)
-            self.message_queue.put(('log', f"릴스 {added}개 추가됨"))
-            return True
-
-        return not self.should_stop
+        return True
 
     def _process_stories(self, profile: Dict[str, Any],
                          insta_profile: instaloader.Profile) -> bool:

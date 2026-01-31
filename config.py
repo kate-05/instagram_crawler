@@ -18,9 +18,11 @@ PROGRESS_PATH = BASE_DIR / PROGRESS_FILE
 SESSION_DIR = BASE_DIR / "sessions"
 
 # Rate limiting (seconds between requests)
-REQUEST_DELAY = 2.0  # Delay between individual requests
-PROFILE_REQUEST_DELAY = 3.0  # Delay after profile info requests
-POST_REQUEST_DELAY = 1.5  # Delay between post requests
+REQUEST_DELAY = 3.0  # Delay between individual requests
+PROFILE_REQUEST_DELAY = 5.0  # Delay after profile info requests
+POST_REQUEST_DELAY = 2.5  # Delay between post requests
+RATE_LIMIT_WAIT = 60  # Wait time when rate limited (seconds)
+MAX_RETRIES = 3  # Maximum retry attempts for rate-limited requests
 
 # Comment settings
 MAX_COMMENTS_PER_POST = 100  # Maximum comments to fetch per post
