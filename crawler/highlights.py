@@ -70,7 +70,18 @@ class HighlightsCrawler:
         highlights_data = []
 
         try:
-            highlights = self.loader.get_highlights(profile)
+            try:
+                highlights = list(self.loader.get_highlights(profile))
+            except KeyError as e:
+                self.progress_callback(f"하이라이트 API 응답 오류 (Instagram API 변경 가능성): {e}")
+                return []
+            except TypeError as e:
+                self.progress_callback(f"하이라이트 데이터 형식 오류: {e}")
+                return []
+
+            if not highlights:
+                self.progress_callback("하이라이트가 없습니다")
+                return []
 
             for highlight in highlights:
                 if stop_flag and stop_flag():

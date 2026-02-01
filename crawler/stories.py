@@ -72,7 +72,18 @@ class StoriesCrawler:
 
         try:
             # Get stories for the profile
-            story_items = self.loader.get_stories(userids=[profile.userid])
+            try:
+                story_items = list(self.loader.get_stories(userids=[profile.userid]))
+            except KeyError as e:
+                self.progress_callback(f"스토리 API 응답 오류 (Instagram API 변경 가능성): {e}")
+                return []
+            except TypeError as e:
+                self.progress_callback(f"스토리 데이터 형식 오류: {e}")
+                return []
+
+            if not story_items:
+                self.progress_callback("현재 스토리가 없습니다")
+                return []
 
             for story in story_items:
                 if stop_flag and stop_flag():
