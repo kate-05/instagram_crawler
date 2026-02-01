@@ -275,8 +275,8 @@ class InstagramCrawlerApp(ctk.CTk):
             ('profile', '프로필 정보', True),
             ('posts', '게시물', True),
             ('reels', '릴스', True),
-            ('stories', '스토리 (로그인 필요)', False),
-            ('highlights', '하이라이트 (로그인 필요)', False),
+            ('stories', '스토리 (미지원)', False),
+            ('highlights', '하이라이트 (미지원)', False),
             ('comments', '댓글', True),
             ('hashtags', '해시태그', True),
         ]
@@ -360,14 +360,16 @@ class InstagramCrawlerApp(ctk.CTk):
         """Handle option checkbox change."""
         self.crawl_options[key] = self.option_vars[key].get()
 
-        # Warn about login requirement
+        # Warn about unsupported features
         if key in ['stories', 'highlights'] and self.crawl_options[key]:
-            if not self.profile_crawler.is_logged_in:
-                names = {'stories': '스토리', 'highlights': '하이라이트'}
-                messagebox.showwarning(
-                    "로그인 필요",
-                    f"{names.get(key, key)}를 수집하려면 로그인이 필요합니다."
-                )
+            names = {'stories': '스토리', 'highlights': '하이라이트'}
+            messagebox.showwarning(
+                "미지원 기능",
+                f"{names.get(key, key)} 수집은 현재 Instagram API 변경으로 지원되지 않습니다."
+            )
+            # Uncheck the option
+            self.option_vars[key].set(False)
+            self.crawl_options[key] = False
 
     def _show_login_dialog(self):
         """Show login dialog."""
