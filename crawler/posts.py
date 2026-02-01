@@ -57,6 +57,8 @@ class PostsCrawler:
     def _post_to_dict(self, post: instaloader.Post) -> Dict[str, Any]:
         """Convert Post object to dictionary.
 
+        Uses _node data directly to avoid additional API calls.
+
         Args:
             post: Instaloader Post object
 
@@ -64,19 +66,54 @@ class PostsCrawler:
             Post data dictionary
         """
         post_type = self._determine_post_type(post)
+        node = post._node if hasattr(post, '_node') else {}
+
+        # Extract data from _node to avoid API calls
+        shortcode = node.get('shortcode', post.shortcode)
+        caption = ''
+        if 'edge_media_to_caption' in node:
+            edges = node['edge_media_to_caption'].get('edges', [])
+            if edges:
+                caption = edges[0].get('node', {}).get('text', '')
+
+        # Get counts from node
+        like_count = node.get('edge_liked_by', {}).get('count', 0)
+        if not like_count:
+            like_count = node.get('edge_media_preview_like', {}).get('count', 0)
+
+        comment_count = node.get('edge_media_to_comment', {}).get('count', 0)
+        if not comment_count:
+            comment_count = node.get('edge_media_preview_comment', {}).get('count', 0)
+            if not comment_count:
+                comment_count = node.get('edge_media_to_parent_comment', {}).get('count', 0)
+
+        # Video info
+        is_video = node.get('is_video', False)
+        view_count = node.get('video_view_count', 0) if is_video else 0
+        video_duration = node.get('video_duration') if is_video else None
+
+        # Media URLs
+        display_url = node.get('display_url', '')
+        video_url = node.get('video_url', '') if is_video else ''
+        thumbnail_url = node.get('thumbnail_src', display_url)
+
+        # Timestamp
+        posted_at = None
+        if 'taken_at_timestamp' in node:
+            posted_at = datetime.fromtimestamp(node['taken_at_timestamp']).isoformat()
 
         return {
-            'shortcode': post.shortcode,
+            'shortcode': shortcode,
             'post_type': post_type,
-            'caption': post.caption if post.caption else '',
-            'like_count': post.likes,
-            'comment_count': post.comments,
-            'view_count': post.video_view_count if post.is_video else 0,
-            'media_url': post.video_url if post.is_video else post.url,
-            'thumbnail_url': post.url,
-            'is_video': post.is_video,
-            'video_duration': post.video_duration if post.is_video else None,
-            'posted_at': post.date_utc.isoformat() if post.date_utc else None,
+            'caption': caption,
+            'like_count': like_count,
+            'comment_count': comment_count,
+            'view_count': view_count,
+            'media_url': video_url if is_video else display_url,
+            'thumbnail_url': thumbnail_url,
+            'is_video': is_video,
+            'video_duration': video_duration,
+            'posted_at': posted_at,
         }
 
     def get_posts(self, profile: instaloader.Profile,

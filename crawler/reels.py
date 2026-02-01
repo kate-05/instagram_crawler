@@ -34,24 +34,55 @@ class ReelsCrawler:
     def _reel_to_dict(self, post: instaloader.Post) -> Dict[str, Any]:
         """Convert Reel Post object to dictionary.
 
+        Uses _node data directly to avoid additional API calls.
+
         Args:
             post: Instaloader Post object
 
         Returns:
             Reel data dictionary
         """
+        from datetime import datetime
+
+        node = post._node if hasattr(post, '_node') else {}
+
+        # Extract data from _node
+        shortcode = node.get('shortcode', post.shortcode)
+        caption = ''
+        if 'edge_media_to_caption' in node:
+            edges = node['edge_media_to_caption'].get('edges', [])
+            if edges:
+                caption = edges[0].get('node', {}).get('text', '')
+
+        like_count = node.get('edge_liked_by', {}).get('count', 0)
+        if not like_count:
+            like_count = node.get('edge_media_preview_like', {}).get('count', 0)
+
+        comment_count = node.get('edge_media_to_comment', {}).get('count', 0)
+        if not comment_count:
+            comment_count = node.get('edge_media_preview_comment', {}).get('count', 0)
+
+        view_count = node.get('video_view_count', 0)
+        video_duration = node.get('video_duration')
+        display_url = node.get('display_url', '')
+        video_url = node.get('video_url', '')
+
+        posted_at = None
+        if 'taken_at_timestamp' in node:
+            posted_at = datetime.fromtimestamp(node['taken_at_timestamp']).isoformat()
+
         return {
-            'shortcode': post.shortcode,
+            'shortcode': shortcode,
             'post_type': 'reel',
-            'caption': post.caption if post.caption else '',
-            'like_count': post.likes,
-            'comment_count': post.comments,
-            'view_count': post.video_view_count if post.is_video else 0,
-            'media_url': post.video_url if post.is_video else post.url,
-            'thumbnail_url': post.url,
+            'caption': caption,
+            'like_count': like_count,
+            'comment_count': comment_count,
+            'view_count': view_count,
+            'media_url': video_url or display_url,
+            'thumbnail_url': display_url,
             'is_video': True,
-            'video_duration': post.video_duration if hasattr(post, 'video_duration') else None,
-            'posted_at': post.date_utc.isoformat() if post.date_utc else None,
+            'video_duration': video_duration,
+            'posted_at': posted_at,
         }
 
     def get_reels(self, profile: instaloader.Profile,
