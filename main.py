@@ -10,6 +10,13 @@ from typing import Optional, List, Dict, Any
 
 import instaloader
 
+# Try to import instagrapi for stories/highlights
+try:
+    from instagrapi import Client as InstagrapiClient
+    INSTAGRAPI_AVAILABLE = True
+except ImportError:
+    INSTAGRAPI_AVAILABLE = False
+
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, APPEARANCE_MODE, COLOR_THEME,
     DATABASE_PATH, EXPORT_DIR, SESSION_DIR, Status, CrawlStep, ACCESS_CODES
@@ -19,6 +26,7 @@ from crawler import (
     ProfileCrawler, PostsCrawler, ReelsCrawler,
     StoriesCrawler, HighlightsCrawler, CommentsCrawler, HashtagExtractor
 )
+from crawler.highlights_v2 import HighlightsCrawlerV2, StoriesCrawlerV2
 from utils.helpers import (
     load_progress, save_progress, has_incomplete_work,
     update_profile_progress, get_profile_progress, get_next_incomplete_step,
@@ -144,6 +152,11 @@ class InstagramCrawlerApp(ctk.CTk):
         self.highlights_crawler = HighlightsCrawler(self.loader, progress_callback=self._log_message)
         self.comments_crawler = CommentsCrawler(self.loader, progress_callback=self._log_message)
         self.hashtag_extractor = HashtagExtractor(progress_callback=self._log_message)
+
+        # Instagrapi client for stories/highlights (alternative API)
+        self.instagrapi_client = None
+        self.stories_crawler_v2 = StoriesCrawlerV2(progress_callback=self._log_message)
+        self.highlights_crawler_v2 = HighlightsCrawlerV2(progress_callback=self._log_message)
 
         # State
         self.is_crawling = False
@@ -275,8 +288,8 @@ class InstagramCrawlerApp(ctk.CTk):
             ('profile', '프로필 정보', True),
             ('posts', '게시물', True),
             ('reels', '릴스', True),
-            ('stories', '스토리 (미지원)', False),
-            ('highlights', '하이라이트 (미지원)', False),
+            ('stories', '스토리 (로그인 필요)', False),
+            ('highlights', '하이라이트 (로그인 필요)', False),
             ('comments', '댓글', True),
             ('hashtags', '해시태그', True),
         ]
@@ -360,16 +373,14 @@ class InstagramCrawlerApp(ctk.CTk):
         """Handle option checkbox change."""
         self.crawl_options[key] = self.option_vars[key].get()
 
-        # Warn about unsupported features
+        # Warn about login requirement for stories/highlights
         if key in ['stories', 'highlights'] and self.crawl_options[key]:
-            names = {'stories': '스토리', 'highlights': '하이라이트'}
-            messagebox.showwarning(
-                "미지원 기능",
-                f"{names.get(key, key)} 수집은 현재 Instagram API 변경으로 지원되지 않습니다."
-            )
-            # Uncheck the option
-            self.option_vars[key].set(False)
-            self.crawl_options[key] = False
+            if not self.instagrapi_client:
+                names = {'stories': '스토리', 'highlights': '하이라이트'}
+                messagebox.showwarning(
+                    "로그인 필요",
+                    f"{names.get(key, key)} 수집을 위해 먼저 로그인해주세요."
+                )
 
     def _show_login_dialog(self):
         """Show login dialog."""
@@ -414,7 +425,7 @@ class InstagramCrawlerApp(ctk.CTk):
             status_label.configure(text="로그인 중...", text_color="gray")
             dialog.update()
 
-            # Try to login
+            # Try to login with instaloader
             if self.profile_crawler.login(username, password):
                 self.logged_in_user = username
                 self.login_status_label.configure(
@@ -426,6 +437,18 @@ class InstagramCrawlerApp(ctk.CTk):
 
                 # Save session
                 self.profile_crawler.save_session(username)
+
+                # Also login with instagrapi for stories/highlights
+                if INSTAGRAPI_AVAILABLE:
+                    try:
+                        self.instagrapi_client = InstagrapiClient()
+                        self.instagrapi_client.login(username, password)
+                        self.stories_crawler_v2.set_client(self.instagrapi_client)
+                        self.highlights_crawler_v2.set_client(self.instagrapi_client)
+                        self._log_message("스토리/하이라이트 API 연결됨")
+                    except Exception as e:
+                        self._log_message(f"스토리/하이라이트 API 연결 실패: {str(e)}")
+                        self.instagrapi_client = None
 
                 dialog.destroy()
             else:
@@ -444,6 +467,9 @@ class InstagramCrawlerApp(ctk.CTk):
         """Logout from Instagram."""
         self.profile_crawler.logout()
         self.logged_in_user = None
+        self.instagrapi_client = None
+        self.stories_crawler_v2.set_client(None)
+        self.highlights_crawler_v2.set_client(None)
         self.login_status_label.configure(text="로그인되지 않음", text_color="gray")
         self.login_btn.configure(state="normal")
         self.logout_btn.configure(state="disabled")
@@ -834,71 +860,87 @@ class InstagramCrawlerApp(ctk.CTk):
 
     def _process_stories(self, profile: Dict[str, Any],
                          insta_profile: instaloader.Profile) -> bool:
-        """Process stories step."""
-        if not insta_profile:
-            return False
-
+        """Process stories step using instagrapi."""
         profile_id = profile['id']
         self.message_queue.put(('log', "스토리 수집 중..."))
 
-        stories = self.stories_crawler.get_stories(
-            insta_profile,
-            stop_flag=lambda: self.should_stop
-        )
-
-        if stories:
-            for story_data in stories:
-                self.db.add_story(
-                    profile_id=profile_id,
-                    media_id=story_data['media_id'],
-                    media_type=story_data['media_type'],
-                    media_url=story_data.get('media_url'),
-                    thumbnail_url=story_data.get('thumbnail_url'),
-                    posted_at=story_data.get('posted_at'),
-                    expires_at=story_data.get('expires_at')
+        # Use instagrapi if available
+        if self.instagrapi_client:
+            try:
+                # Get user_id from instagrapi
+                user_id = self.instagrapi_client.user_id_from_username(profile['username'])
+                stories = self.stories_crawler_v2.get_stories(
+                    user_id,
+                    stop_flag=lambda: self.should_stop
                 )
-            self.message_queue.put(('log', f"스토리 {len(stories)}개 추가됨"))
-            return True
+
+                if stories:
+                    for story_data in stories:
+                        self.db.add_story(
+                            profile_id=profile_id,
+                            media_id=story_data['media_id'],
+                            media_type=story_data['media_type'],
+                            media_url=story_data.get('media_url'),
+                            thumbnail_url=story_data.get('thumbnail_url'),
+                            posted_at=story_data.get('posted_at'),
+                            expires_at=story_data.get('expires_at')
+                        )
+                    self.message_queue.put(('log', f"스토리 {len(stories)}개 추가됨"))
+                    return True
+            except Exception as e:
+                self.message_queue.put(('log', f"스토리 수집 오류: {str(e)}"))
+                return False
+        else:
+            self.message_queue.put(('log', "스토리 수집에 로그인이 필요합니다"))
+            return False
 
         return not self.should_stop
 
     def _process_highlights(self, profile: Dict[str, Any],
                             insta_profile: instaloader.Profile) -> bool:
-        """Process highlights step."""
-        if not insta_profile:
-            return False
-
+        """Process highlights step using instagrapi."""
         profile_id = profile['id']
         self.message_queue.put(('log', "하이라이트 수집 중..."))
 
-        highlights_data = self.highlights_crawler.get_highlights(
-            insta_profile,
-            stop_flag=lambda: self.should_stop
-        )
-
-        if highlights_data:
-            for highlight_info, items in highlights_data:
-                highlight_db_id = self.db.add_highlight(
-                    profile_id=profile_id,
-                    highlight_id=highlight_info['highlight_id'],
-                    title=highlight_info['title'],
-                    cover_url=highlight_info.get('cover_url'),
-                    item_count=highlight_info['item_count']
+        # Use instagrapi if available
+        if self.instagrapi_client:
+            try:
+                # Get user_id from instagrapi
+                user_id = self.instagrapi_client.user_id_from_username(profile['username'])
+                highlights_data = self.highlights_crawler_v2.get_highlights(
+                    user_id,
+                    stop_flag=lambda: self.should_stop
                 )
 
-                if highlight_db_id:
-                    for item in items:
-                        self.db.add_highlight_item(
-                            highlight_id=highlight_db_id,
-                            media_id=item['media_id'],
-                            media_type=item['media_type'],
-                            media_url=item.get('media_url'),
-                            thumbnail_url=item.get('thumbnail_url'),
-                            posted_at=item.get('posted_at')
+                if highlights_data:
+                    for highlight_info, items in highlights_data:
+                        highlight_db_id = self.db.add_highlight(
+                            profile_id=profile_id,
+                            highlight_id=highlight_info['highlight_id'],
+                            title=highlight_info['title'],
+                            cover_url=highlight_info.get('cover_url'),
+                            item_count=highlight_info['item_count']
                         )
 
-            self.message_queue.put(('log', f"하이라이트 {len(highlights_data)}개 추가됨"))
-            return True
+                        if highlight_db_id:
+                            for item in items:
+                                self.db.add_highlight_item(
+                                    highlight_id=highlight_db_id,
+                                    media_id=item['media_id'],
+                                    media_type=item['media_type'],
+                                    media_url=item.get('media_url'),
+                                    thumbnail_url=item.get('thumbnail_url'),
+                                    posted_at=item.get('posted_at')
+                                )
+
+                    self.message_queue.put(('log', f"하이라이트 {len(highlights_data)}개 추가됨"))
+                    return True
+            except Exception as e:
+                self.message_queue.put(('log', f"하이라이트 수집 오류: {str(e)}"))
+                return False
+        else:
+            self.message_queue.put(('log', "하이라이트 수집에 로그인이 필요합니다"))
+            return False
 
         return not self.should_stop
 

@@ -5,6 +5,7 @@ customtkinter>=5.2.0
 
 # Instagram crawling
 instaloader>=4.10.0
+instagrapi>=2.0.0  # For stories/highlights (alternative API)
 
 # Database (built-in sqlite3, no additional deps needed)
 
