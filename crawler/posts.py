@@ -135,8 +135,27 @@ class PostsCrawler:
         count = 0
         retry_count = 0
 
+        # Try to get post iterator with retries
+        post_iterator = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                post_iterator = profile.get_posts()
+                # Try to get first item to verify connection
+                break
+            except instaloader.exceptions.ConnectionException as e:
+                error_msg = str(e)
+                if "401" in error_msg or "wait" in error_msg.lower():
+                    if attempt < MAX_RETRIES:
+                        self.progress_callback(f"Rate limit 감지. {RATE_LIMIT_WAIT}초 대기 후 재시도 ({attempt+1}/{MAX_RETRIES})...")
+                        time.sleep(RATE_LIMIT_WAIT)
+                        continue
+                raise
+
+        if post_iterator is None:
+            self.progress_callback("게시물 목록을 가져올 수 없습니다")
+            return []
+
         try:
-            post_iterator = profile.get_posts()
 
             while True:
                 # Check stop flag
