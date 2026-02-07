@@ -1192,9 +1192,12 @@ def verify_access() -> bool:
 
 def main():
     """Main entry point."""
-    # Verify access code first
-    if not verify_access():
-        return
+    import sys
+
+    # Skip access code with --dev flag
+    if "--dev" not in sys.argv:
+        if not verify_access():
+            return
 
     app = InstagramCrawlerApp()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)
